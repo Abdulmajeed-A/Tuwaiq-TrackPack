@@ -8,6 +8,15 @@ import bagIcon from './assets/bag.svg';
 // API
 // ================================================================
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const ADMIN_PASSWORD = "trackpack2024";
+
+const STATUSES = [
+  { key: 'check-in',   label: 'Check-in',    icon: '🏷️',  color: '#6366f1' },
+  { key: 'loaded',     label: 'Loaded',      icon: '📦',  color: '#f59e0b' },
+  { key: 'in-flight',  label: 'In Flight',   icon: '✈️',  color: '#3b82f6' },
+  { key: 'arrived',    label: 'Arrived',     icon: '🛬',  color: '#8b5cf6' },
+  { key: 'on-carousel',label: 'On Carousel', icon: '🎠',  color: '#22c55e' },
+];
 
 async function sendOTP(email) {
   const form = new FormData();
@@ -42,6 +51,27 @@ async function saveFingerprint(email, images) {
   return res.json();
 }
 
+async function getBagStatus(email) {
+  const res = await fetch(`${API}/bag/status?email=${encodeURIComponent(email)}`);
+  if (!res.ok) throw new Error("Not found");
+  return res.json();
+}
+
+async function getAllBags() {
+  const res = await fetch(`${API}/admin/bags`);
+  if (!res.ok) throw new Error("Failed");
+  return res.json();
+}
+
+async function updateBagStatus(email, status) {
+  const form = new FormData();
+  form.append("email", email);
+  form.append("status", status);
+  const res = await fetch(`${API}/admin/update-status`, { method: "POST", body: form });
+  if (!res.ok) throw new Error("Failed");
+  return res.json();
+}
+
 // ================================================================
 // LOGIN SCREEN
 // ================================================================
@@ -54,32 +84,18 @@ function LoginScreen({ onSubmit }) {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const handleChange = (e) => {
-    setEmail(e.target.value.trim());
-    if (error) setError('');
-  };
-
-  const validate = () => {
-    if (!email) return 'يرجى إدخال البريد الإلكتروني';
-    if (!emailRegex.test(email)) return 'صيغة البريد الإلكتروني غير صحيحة';
-    return '';
-  };
+  const handleChange = (e) => { setEmail(e.target.value.trim()); if (error) setError(''); };
 
   const handleSubmit = async () => {
-    const err = validate();
-    if (err) { setError(err); return; }
+    if (!emailRegex.test(email)) { setError('صيغة البريد الإلكتروني غير صحيحة'); return; }
     setLoading(true);
     try {
       await sendOTP(email);
       onSubmit(email);
-    } catch (e) {
-      setError('فشل إرسال الرمز، حاول مجدداً');
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError('فشل إرسال الرمز، حاول مجدداً'); }
+    finally { setLoading(false); }
   };
 
-  const handleKey = (e) => { if (e.key === 'Enter') handleSubmit(); };
   const isValid = emailRegex.test(email);
 
   return (
@@ -90,33 +106,17 @@ function LoginScreen({ onSubmit }) {
             <img src={bagIcon} alt="Suitcase" style={{ width: '100px', height: '100px' }} />
           </div>
         </div>
-
-        <h1>فحص الأمتعة</h1>
+        <h1>TrackPack</h1>
         <p className="subtitle">أدخل بريدك الإلكتروني للمتابعة</p>
-
         <div className={`input-group ${error ? 'has-error' : email.length > 0 ? 'has-value' : ''}`}>
           <label>البريد الإلكتروني</label>
-          <input
-            ref={inputRef}
-            type="email"
-            placeholder="example@domain.com"
-            value={email}
-            onChange={handleChange}
-            onKeyDown={handleKey}
-            dir="ltr"
-          />
+          <input ref={inputRef} type="email" placeholder="example@domain.com"
+            value={email} onChange={handleChange} onKeyDown={e => e.key==='Enter'&&handleSubmit()} dir="ltr" />
         </div>
-
-        {error && (
-          <div className="error-msg" role="alert">
-            <span>⚠️</span> {error}
-          </div>
-        )}
-
+        {error && <div className="error-msg"><span>⚠️</span> {error}</div>}
         <button className="btn-primary" onClick={handleSubmit} disabled={!isValid || loading}>
           {loading ? 'جاري الإرسال...' : 'إرسال رمز التحقق'}
         </button>
-
         <p className="legal-note">سيتم إرسال رمز مكون من 6 أرقام إلى بريدك الإلكتروني</p>
       </div>
     </div>
@@ -126,45 +126,26 @@ function LoginScreen({ onSubmit }) {
 // ================================================================
 // OTP SCREEN
 // ================================================================
-const RESEND_DELAY = 30;
-
 function OtpScreen({ email, onVerify, onBack }) {
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState(['','','','','','']);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [countdown, setCountdown] = useState(RESEND_DELAY);
+  const [countdown, setCountdown] = useState(30);
   const [canResend, setCanResend] = useState(false);
   const [shaking, setShaking] = useState(false);
-  const inputRefs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
+  const refs = [useRef(),useRef(),useRef(),useRef(),useRef(),useRef()];
 
-  useEffect(() => { inputRefs[0].current?.focus(); }, []);
-
+  useEffect(() => { refs[0].current?.focus(); }, []);
   useEffect(() => {
     if (countdown <= 0) { setCanResend(true); return; }
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    const t = setTimeout(() => setCountdown(c => c-1), 1000);
     return () => clearTimeout(t);
   }, [countdown]);
 
   const handleChange = (idx, val) => {
-    const digit = val.replace(/\D/g, '').slice(-1);
-    const next = [...otp];
-    next[idx] = digit;
-    setOtp(next);
-    setError('');
-    if (digit && idx < 5) inputRefs[idx + 1].current?.focus();
-  };
-
-  const handleKeyDown = (idx, e) => {
-    if (e.key === 'Backspace' && !otp[idx] && idx > 0) inputRefs[idx - 1].current?.focus();
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    const next = ['', '', '', '', '', ''];
-    pasted.split('').forEach((ch, i) => { next[i] = ch; });
-    setOtp(next);
-    inputRefs[Math.min(pasted.length, 5)].current?.focus();
+    const d = val.replace(/\D/g,'').slice(-1);
+    const next = [...otp]; next[idx] = d; setOtp(next); setError('');
+    if (d && idx < 5) refs[idx+1].current?.focus();
   };
 
   const handleVerify = async () => {
@@ -174,77 +155,171 @@ function OtpScreen({ email, onVerify, onBack }) {
     try {
       await verifyOTP(email, code);
       onVerify();
-    } catch (e) {
-      setError('رمز التحقق غير صحيح أو منتهي الصلاحية');
-      setShaking(true);
-      setOtp(['', '', '', '', '', '']);
-      setTimeout(() => { setShaking(false); inputRefs[0].current?.focus(); }, 600);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    if (!canResend) return;
-    try {
-      await sendOTP(email);
-      setCountdown(RESEND_DELAY);
-      setCanResend(false);
-      setOtp(['', '', '', '', '', '']);
-      setError('');
-      inputRefs[0].current?.focus();
     } catch {
-      setError('فشل إعادة الإرسال');
-    }
+      setError('رمز التحقق غير صحيح');
+      setShaking(true);
+      setOtp(['','','','','','']);
+      setTimeout(() => { setShaking(false); refs[0].current?.focus(); }, 600);
+    } finally { setLoading(false); }
   };
-
-  const filled = otp.every(d => d !== '');
 
   return (
     <div className="screen">
       <div className="card">
         <button className="back-btn" onClick={onBack}>← رجوع</button>
-
         <div className="brand-icon">🔐</div>
         <h1>رمز التحقق</h1>
-        <p className="subtitle">
-          أُرسل رمز إلى<br />
-          <strong dir="ltr">{email}</strong>
-        </p>
-
-        <div className={`otp-row ${shaking ? 'shake' : ''}`} onPaste={handlePaste}>
+        <p className="subtitle">أُرسل رمز إلى<br/><strong dir="ltr">{email}</strong></p>
+        <div className={`otp-row ${shaking ? 'shake' : ''}`}>
           {otp.map((val, idx) => (
-            <input
-              key={idx}
-              ref={inputRefs[idx]}
+            <input key={idx} ref={refs[idx]}
               className={`otp-box ${val ? 'filled' : ''} ${error ? 'box-error' : ''}`}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={val}
+              type="text" inputMode="numeric" maxLength={1} value={val}
               onChange={e => handleChange(idx, e.target.value)}
-              onKeyDown={e => handleKeyDown(idx, e)}
-              dir="ltr"
-            />
+              onKeyDown={e => e.key==='Backspace' && !otp[idx] && idx>0 && refs[idx-1].current?.focus()}
+              dir="ltr" />
           ))}
         </div>
-
-        {error && (
-          <div className="error-msg" role="alert">
-            <span>⚠️</span> {error}
-          </div>
-        )}
-
-        <button className="btn-primary" onClick={handleVerify} disabled={!filled || loading}>
+        {error && <div className="error-msg"><span>⚠️</span> {error}</div>}
+        <button className="btn-primary" onClick={handleVerify} disabled={!otp.every(d=>d) || loading}>
           {loading ? 'جاري التحقق...' : 'تحقق والمتابعة'}
         </button>
-
         <div className="resend-row">
-          {canResend ? (
-            <button className="resend-btn" onClick={handleResend}>إعادة إرسال الرمز</button>
-          ) : (
-            <span className="resend-timer">إعادة الإرسال بعد <strong>{countdown}s</strong></span>
-          )}
+          {canResend
+            ? <button className="resend-btn" onClick={async () => { await sendOTP(email); setCountdown(30); setCanResend(false); setOtp(['','','','','','']); }}>إعادة إرسال</button>
+            : <span className="resend-timer">إعادة الإرسال بعد <strong>{countdown}s</strong></span>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+// CHOICE SCREEN — تسجيل أو تتبع
+// ================================================================
+function ChoiceScreen({ email, onRegister, onTrack }) {
+  return (
+    <div className="screen">
+      <div className="card choice-card">
+        <div className="brand-icon">🧳</div>
+        <h1>مرحباً!</h1>
+        <p className="subtitle" dir="ltr">{email}</p>
+
+        <div className="choice-grid">
+          <button className="choice-btn choice-register" onClick={onRegister}>
+            <div className="choice-icon">📸</div>
+            <div className="choice-title">تسجيل شنطة</div>
+            <div className="choice-desc">صوّر شنطتك وسجّل بصمتها</div>
+          </button>
+
+          <button className="choice-btn choice-track" onClick={onTrack}>
+            <div className="choice-icon">📡</div>
+            <div className="choice-title">تتبع شنطتي</div>
+            <div className="choice-desc">اعرف أين شنطتك الآن</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+// TRACKING SCREEN
+// ================================================================
+function TrackingScreen({ email, onBack }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await getBagStatus(email);
+      setData(res);
+      setError('');
+    } catch {
+      setError('لم يتم العثور على بصمة شنطة لهذا البريد. يرجى تسجيل شنطتك أولاً.');
+    } finally {
+      setLoading(false);
+    }
+  }, [email]);
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 10000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  const currentIdx = data ? STATUSES.findIndex(s => s.key === data.status) : -1;
+
+  if (loading) return (
+    <div className="screen">
+      <div className="card">
+        <div className="loading-spinner">⏳</div>
+        <p className="subtitle">جاري البحث عن شنطتك...</p>
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="screen">
+      <div className="card">
+        <div className="brand-icon">😕</div>
+        <h1>غير موجود</h1>
+        <p className="subtitle">{error}</p>
+        <button className="btn-primary" onClick={onBack}>رجوع</button>
+      </div>
+    </div>
+  );
+
+  const current = STATUSES[currentIdx];
+
+  return (
+    <div className="screen tracking-screen">
+      <div className="tracking-card">
+        <button className="back-btn" style={{marginBottom:'16px'}} onClick={onBack}>← رجوع</button>
+
+        <div className="tracking-header">
+          <div className="tracking-status-icon" style={{background: current?.color + '22', border: `2px solid ${current?.color}`}}>
+            <span>{current?.icon || '🧳'}</span>
+          </div>
+          <h1 className="tracking-title">{current?.label || 'Unknown'}</h1>
+          <p className="tracking-email" dir="ltr">{email}</p>
+        </div>
+
+        <div className="timeline">
+          {STATUSES.map((s, idx) => {
+            const done    = idx < currentIdx;
+            const active  = idx === currentIdx;
+            const pending = idx > currentIdx;
+            return (
+              <div key={s.key} className={`timeline-item ${done ? 'done' : active ? 'active' : 'pending'}`}>
+                <div className="timeline-left">
+                  <div className="timeline-dot" style={active ? {background: s.color, boxShadow: `0 0 0 4px ${s.color}33`} : done ? {background: s.color} : {}}>
+                    {done ? '✓' : active ? s.icon : ''}
+                  </div>
+                  {idx < STATUSES.length - 1 && (
+                    <div className="timeline-line" style={done ? {background: s.color} : {}} />
+                  )}
+                </div>
+                <div className="timeline-content">
+                  <div className="timeline-label" style={active ? {color: s.color, fontWeight: 700} : {}}>
+                    {s.label}
+                  </div>
+                  {active && (
+                    <div className="timeline-badge" style={{background: s.color}}>الحالة الحالية</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="tracking-footer">
+          <p className="tracking-updated">
+            آخر تحديث: {data?.updated_at ? new Date(data.updated_at).toLocaleTimeString('ar') : 'الآن'}
+          </p>
+          <button className="btn-refresh" onClick={fetchStatus}>🔄 تحديث</button>
         </div>
       </div>
     </div>
@@ -257,12 +332,12 @@ function OtpScreen({ email, onVerify, onBack }) {
 function CameraScreen({ onDone }) {
   const videoRef   = useRef(null);
   const canvasRef  = useRef(document.createElement('canvas'));
-  const [model, setModel]           = useState(null);
-  const [message, setMessage]       = useState('جاري تهيئة النظام...');
-  const [isDetected, setIsDetected] = useState(false);
+  const [model, setModel]             = useState(null);
+  const [message, setMessage]         = useState('جاري تهيئة النظام...');
+  const [isDetected, setIsDetected]   = useState(false);
   const [isLightGood, setIsLightGood] = useState(true);
   const [captureStep, setCaptureStep] = useState('front');
-  const [images, setImages]         = useState({ front: null, back: null });
+  const [images, setImages]           = useState({ front: null, back: null });
 
   const startCamera = useCallback(async () => {
     try {
@@ -286,10 +361,7 @@ function CameraScreen({ onDone }) {
     ).then(setModel);
   }, []);
 
-  useEffect(() => {
-    startCamera();
-    return stopCamera;
-  }, [startCamera, stopCamera]);
+  useEffect(() => { startCamera(); return stopCamera; }, [startCamera, stopCamera]);
 
   const checkLighting = useCallback((video) => {
     const canvas = canvasRef.current;
@@ -299,13 +371,12 @@ function CameraScreen({ onDone }) {
     const { data } = ctx.getImageData(0, 0, 40, 40);
     let brightness = 0;
     for (let i = 0; i < data.length; i += 4)
-      brightness += (data[i] + data[i + 1] + data[i + 2]) / 3;
+      brightness += (data[i] + data[i+1] + data[i+2]) / 3;
     return brightness / 1600 > 45;
   }, []);
 
   useEffect(() => {
-    let rafId;
-    let lastTime = 0;
+    let rafId, lastTime = 0;
     const loop = async (time) => {
       if (model && videoRef.current?.readyState === 4) {
         if (time - lastTime > 800) {
@@ -314,13 +385,12 @@ function CameraScreen({ onDone }) {
           setIsLightGood(lightOk);
           if (lightOk) {
             const preds = await model.detect(videoRef.current);
-            const bag = preds.find(p => ['suitcase', 'bag', 'backpack', 'handbag'].includes(p.class));
+            const bag = preds.find(p => ['suitcase','bag','backpack','handbag'].includes(p.class));
             if (bag) {
-              const [,,w] = bag.bbox;
-              const vw = videoRef.current.videoWidth;
-              if (bag.score < 0.45)    { setMessage('🔄 حرك الكاميرا ببطء'); setIsDetected(false); }
-              else if (w < vw * 0.3)   { setMessage('🔍 اقترب من الحقيبة'); setIsDetected(false); }
-              else                      { setMessage('✅ وضعية مثالية! التقط الصورة'); setIsDetected(true); }
+              const [,,w] = bag.bbox; const vw = videoRef.current.videoWidth;
+              if (bag.score < 0.45)  { setMessage('🔄 حرك الكاميرا ببطء'); setIsDetected(false); }
+              else if (w < vw * 0.3) { setMessage('🔍 اقترب من الحقيبة'); setIsDetected(false); }
+              else                    { setMessage('✅ وضعية مثالية! التقط الصورة'); setIsDetected(true); }
             } else { setMessage('🔎 ابحث عن الحقيبة داخل الإطار'); setIsDetected(false); }
           } else { setMessage('⚠️ الإضاءة ضعيفة جداً'); setIsDetected(false); }
         }
@@ -337,16 +407,14 @@ function CameraScreen({ onDone }) {
     canvas.height = videoRef.current.videoHeight;
     canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-
     if (captureStep === 'front') {
       setImages(prev => ({ ...prev, front: dataUrl }));
       setCaptureStep('back');
       setMessage('الآن صور الجهة الخلفية');
       setIsDetected(false);
     } else {
-      const finalImages = { ...images, back: dataUrl };
       stopCamera();
-      onDone(finalImages);
+      onDone({ ...images, back: dataUrl });
     }
   };
 
@@ -357,12 +425,11 @@ function CameraScreen({ onDone }) {
         <p className="camera-msg">{message}</p>
         {!isLightGood && <p className="light-warn">⚠️ الإضاءة ضعيفة جداً</p>}
       </div>
-
       <div className="camera-wrap">
         <video ref={videoRef} autoPlay playsInline muted />
         <div className={`scan-frame ${isDetected && isLightGood ? 'detected' : ''}`}>
-          <span className="corner tl" /><span className="corner tr" />
-          <span className="corner bl" /><span className="corner br" />
+          <span className="corner tl"/><span className="corner tr"/>
+          <span className="corner bl"/><span className="corner br"/>
         </div>
         {captureStep === 'back' && images.front && (
           <div className="preview-thumb">
@@ -371,7 +438,6 @@ function CameraScreen({ onDone }) {
           </div>
         )}
       </div>
-
       <div className="camera-footer">
         <button className="btn-capture" disabled={!isDetected || !isLightGood} onClick={captureImage}>
           <span className="capture-icon" />
@@ -385,7 +451,7 @@ function CameraScreen({ onDone }) {
 // ================================================================
 // DONE SCREEN
 // ================================================================
-function DoneScreen({ images, email }) {
+function DoneScreen({ images, email, onTrack }) {
   return (
     <div className="screen">
       <div className="card">
@@ -396,19 +462,133 @@ function DoneScreen({ images, email }) {
           سنرسل لك إشعاراً على <strong dir="ltr">{email}</strong> عند وصولها
         </p>
         <div className="final-grid">
-          <div className="final-img-wrap">
-            <img src={images.front} alt="Front" />
-            <span>الأمام</span>
-          </div>
-          <div className="final-img-wrap">
-            <img src={images.back} alt="Back" />
-            <span>الخلف</span>
-          </div>
+          <div className="final-img-wrap"><img src={images.front} alt="Front"/><span>الأمام</span></div>
+          <div className="final-img-wrap"><img src={images.back}  alt="Back" /><span>الخلف</span></div>
         </div>
-        <button className="btn-primary" onClick={() => window.location.reload()}>إغلاق</button>
+        <button className="btn-primary" onClick={onTrack} style={{marginBottom:'12px'}}>
+          📡 تتبع شنطتي
+        </button>
+        <button className="btn-secondary" onClick={() => window.location.reload()}>إغلاق</button>
       </div>
     </div>
   );
+}
+
+// ================================================================
+// ADMIN DASHBOARD
+// ================================================================
+function AdminLogin({ onLogin }) {
+  const [pw, setPw] = useState('');
+  const [error, setError] = useState('');
+
+  const handleLogin = () => {
+    if (pw === ADMIN_PASSWORD) onLogin();
+    else setError('كلمة المرور غير صحيحة');
+  };
+
+  return (
+    <div className="screen admin-login">
+      <div className="card">
+        <div className="brand-icon">🔒</div>
+        <h1>داشبورد الموظف</h1>
+        <p className="subtitle">أدخل كلمة المرور للوصول</p>
+        <div className={`input-group ${error ? 'has-error' : ''}`}>
+          <label>كلمة المرور</label>
+          <input type="password" value={pw} onChange={e => { setPw(e.target.value); setError(''); }}
+            onKeyDown={e => e.key==='Enter' && handleLogin()} placeholder="••••••••" dir="ltr" />
+        </div>
+        {error && <div className="error-msg"><span>⚠️</span> {error}</div>}
+        <button className="btn-primary" onClick={handleLogin} disabled={!pw}>دخول</button>
+      </div>
+    </div>
+  );
+}
+
+function AdminDashboard() {
+  const [bags, setBags] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const fetchBags = useCallback(async () => {
+    try {
+      const data = await getAllBags();
+      setBags(data);
+    } catch { setBags([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchBags(); const iv = setInterval(fetchBags, 15000); return () => clearInterval(iv); }, [fetchBags]);
+
+  const handleUpdate = async (email, status) => {
+    setUpdating(email);
+    try {
+      await updateBagStatus(email, status);
+      await fetchBags();
+    } finally { setUpdating(null); }
+  };
+
+  const filtered = bags.filter(b => b.email.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="admin-dash">
+      <div className="admin-header">
+        <div className="admin-logo">🎛️ TrackPack Admin</div>
+        <div className="admin-stats">
+          <div className="stat-pill">{bags.length} مسافر</div>
+        </div>
+      </div>
+
+      <div className="admin-search">
+        <input type="text" placeholder="ابحث بالإيميل..." value={search}
+          onChange={e => setSearch(e.target.value)} dir="ltr" className="admin-search-input" />
+      </div>
+
+      {loading ? (
+        <div className="admin-loading">⏳ جاري التحميل...</div>
+      ) : filtered.length === 0 ? (
+        <div className="admin-empty">لا يوجد مسافرون مسجّلون</div>
+      ) : (
+        <div className="admin-table">
+          {filtered.map(bag => {
+            const currentStatus = STATUSES.find(s => s.key === bag.status) || STATUSES[0];
+            return (
+              <div key={bag.email} className="admin-row">
+                <div className="admin-row-top">
+                  <div className="admin-email" dir="ltr">{bag.email}</div>
+                  <div className="admin-current-status" style={{color: currentStatus.color}}>
+                    {currentStatus.icon} {currentStatus.label}
+                  </div>
+                </div>
+                <div className="admin-status-btns">
+                  {STATUSES.map(s => (
+                    <button
+                      key={s.key}
+                      className={`status-btn ${bag.status === s.key ? 'active' : ''}`}
+                      style={bag.status === s.key ? {background: s.color, borderColor: s.color} : {}}
+                      onClick={() => handleUpdate(bag.email, s.key)}
+                      disabled={updating === bag.email}
+                    >
+                      {s.icon} {s.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="admin-row-time">
+                  آخر تحديث: {bag.status_updated_at ? new Date(bag.status_updated_at).toLocaleString('ar') : '-'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminScreen() {
+  const [loggedIn, setLoggedIn] = useState(false);
+  if (!loggedIn) return <AdminLogin onLogin={() => setLoggedIn(true)} />;
+  return <AdminDashboard />;
 }
 
 // ================================================================
@@ -419,33 +599,23 @@ export default function App() {
   const [email, setEmail]   = useState('');
   const [images, setImages] = useState(null);
 
+  // Admin route
+  if (window.location.pathname === '/admin') return <AdminScreen />;
+
   return (
     <>
-      {step === 'login' && (
-        <LoginScreen onSubmit={e => { setEmail(e); setStep('otp'); }} />
-      )}
-      {step === 'otp' && (
-        <OtpScreen
-          email={email}
-          onVerify={() => setStep('camera')}
-          onBack={() => setStep('login')}
-        />
-      )}
+      {step === 'login'  && <LoginScreen onSubmit={e => { setEmail(e); setStep('otp'); }} />}
+      {step === 'otp'    && <OtpScreen email={email} onVerify={() => setStep('choice')} onBack={() => setStep('login')} />}
+      {step === 'choice' && <ChoiceScreen email={email} onRegister={() => setStep('camera')} onTrack={() => setStep('track')} />}
+      {step === 'track'  && <TrackingScreen email={email} onBack={() => setStep('choice')} />}
       {step === 'camera' && (
         <CameraScreen onDone={async imgs => {
           setImages(imgs);
           setStep('done');
-          try {
-            await saveFingerprint(email, imgs);
-            console.log('✅ Fingerprint saved');
-          } catch (e) {
-            console.error('❌ Save failed:', e);
-          }
+          try { await saveFingerprint(email, imgs); } catch(e) { console.error(e); }
         }} />
       )}
-      {step === 'done' && (
-        <DoneScreen images={images} email={email} />
-      )}
+      {step === 'done' && <DoneScreen images={images} email={email} onTrack={() => setStep('track')} />}
     </>
   );
 }
