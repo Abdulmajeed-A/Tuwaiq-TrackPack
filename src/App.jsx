@@ -436,7 +436,7 @@ function MatchResultsPanel({ email, onClose }) {
       ) : results.length === 0 ? (
         <div style={{textAlign:'center', padding:'40px', color:'#475569'}}>
           <div style={{fontSize:'32px', marginBottom:'12px'}}>📭</div>
-          <div>لا يوجد ماتش بعد</div>
+          <div>لا يوجد تطابق بعد</div>
           <div style={{fontSize:'12px', color:'#334155', marginTop:'8px'}}>شغّل الفيديو عشان يظهر هنا</div>
         </div>
       ) : results.map((r, i) => (
