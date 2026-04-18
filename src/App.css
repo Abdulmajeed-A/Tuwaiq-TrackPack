@@ -507,22 +507,23 @@ body {
 
 .back-btn:hover { text-decoration: underline; }
 
+
 /* ── OTP Row ─────────────────────────────────────────────────────────────────── */
 .otp-row {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   justify-content: center;
   margin-bottom: 20px;
   flex-direction: row-reverse; /* RTL visual order */
 }
 
 .otp-box {
-  width: 64px;
-  height: 70px;
+  width: 46px;
+  height: 54px;
   border: 1.5px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-family: var(--font);
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
   text-align: center;
   color: var(--text);
@@ -531,6 +532,7 @@ body {
   transition: border-color .2s, box-shadow .2s, background .2s, transform .15s;
   caret-color: var(--primary);
 }
+
 
 .otp-box:focus {
   border-color: var(--primary);
